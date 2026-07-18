@@ -120,6 +120,15 @@ function rankBadgeHtml(st, lvl) {
   const nextTxt = lvl.next != null ? ` · ${TIER_NAMES[lvl.idx + 1]} à ${lvl.next}kg` : " · palier max 🔥";
   return `<span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span><span class="rank-next">${nextTxt}</span>`;
 }
+/* Niveau actuel d'un exercice, calculé sur la 1re série de sa dernière séance */
+function currentLevel(exId) {
+  const ex = exById(exId);
+  const st = ex && standardFor(ex.name);
+  if (!st) return null;
+  const en = lastEntry(exId);
+  if (!en || !en.sets.length) return { st, lvl: null };
+  return { st, lvl: computeLevel(st, en.sets[0].weight, en.sets[0].reps) };
+}
 
 /* ---------- Stockage ---------- */
 function load(key, fallback) {
@@ -241,8 +250,12 @@ function switchView(view) {
   state.view = view;
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   document.getElementById("view-" + view).classList.remove("hidden");
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
+  // Modèles et Exercices n'ont plus d'onglet : on surligne Réglages (leur "parent")
+  const activeTab = (view === "modeles" || view === "exercices") ? "reglages" : view;
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === activeTab));
   document.getElementById("viewTitle").textContent = VIEW_TITLES[view];
+  document.getElementById("main").scrollTop = 0;
+  window.scrollTo(0, 0);
   render();
 }
 document.querySelectorAll(".tab").forEach((t) => {
@@ -579,6 +592,8 @@ function renderModeles() {
   const timers = state.programs.filter((p) => p.type === "timer");
 
   let html = `
+    <button class="btn btn-ghost btn-block back-btn" id="backReglages">‹ Retour aux réglages</button>
+    <div class="spacer"></div>
     <div class="row" style="margin-bottom:14px">
       <button class="btn btn-primary" id="newMuscu">＋ Séance</button>
       <button class="btn" id="newTimer">＋ Minuteur</button>
@@ -590,6 +605,7 @@ function renderModeles() {
   html += timers.length ? timers.map(programCard).join("") : `<p class="muted small">Aucun minuteur.</p>`;
   el.innerHTML = html;
 
+  document.getElementById("backReglages").onclick = () => switchView("reglages");
   document.getElementById("newMuscu").onclick = () => openMuscuBuilder(null);
   document.getElementById("newTimer").onclick = () => openTimerBuilder(null);
   el.querySelectorAll(".prog-start").forEach((b) => b.onclick = () => startFromProgram(state.programs.find((p) => p.id === b.dataset.id)));
@@ -816,9 +832,19 @@ function tone(freq, dur, vol) {
 }
 function vibe(p) { if (navigator.vibrate) navigator.vibrate(p); }
 
+/* Empêche l'écran de se verrouiller tant que l'appli est ouverte (au 1er plan).
+   Le verrou est libéré par le navigateur quand la page passe en arrière-plan
+   et re-demandé automatiquement au retour. */
 let wakeLock = null;
-async function requestWake() { try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {} }
-function releaseWake() { try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
+async function ensureWakeLock() {
+  try {
+    if (!("wakeLock" in navigator) || document.visibilityState !== "visible" || wakeLock) return;
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (e) { wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") ensureWakeLock(); });
+document.addEventListener("pointerdown", ensureWakeLock, { passive: true });
 
 function buildPhases(p) {
   const c = p.cfg || {};
@@ -840,7 +866,7 @@ function openTimer(prog) {
   const overlay = document.getElementById("timer");
   document.getElementById("tName").textContent = prog.name;
   overlay.classList.remove("hidden");
-  requestWake();
+  ensureWakeLock();
   if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
 
   if (prog.mode === "chrono") {
@@ -941,7 +967,7 @@ function bindTimerControls() {
 function closeTimer() {
   if (T && T.tick) clearInterval(T.tick);
   T = null;
-  releaseWake();
+  // on garde le verrou d'écran actif tant que l'appli reste ouverte
   const overlay = document.getElementById("timer");
   overlay.classList.add("hidden");
   // restaurer les contrôles par défaut
@@ -1018,7 +1044,8 @@ function renderExercices() {
   state.exercises.forEach((e) => { (groups[e.muscle] = groups[e.muscle] || []).push(e); });
   const order = [...MUSCLE_ORDER.filter((m) => groups[m]), ...Object.keys(groups).filter((m) => !MUSCLE_ORDER.includes(m))];
 
-  let html = `<button class="btn btn-primary btn-block" id="newEx">＋ Nouvel exercice</button><div class="spacer"></div>`;
+  let html = `<button class="btn btn-ghost btn-block back-btn" id="backReglages2">‹ Retour aux réglages</button><div class="spacer"></div>
+    <button class="btn btn-primary btn-block" id="newEx">＋ Nouvel exercice</button><div class="spacer"></div>`;
   order.forEach((muscle) => {
     const items = groups[muscle].sort((a, b) => a.name.localeCompare(b.name, "fr")).map((e) => `
       <div class="lib-item">
@@ -1032,6 +1059,7 @@ function renderExercices() {
   });
   el.innerHTML = html;
 
+  document.getElementById("backReglages2").onclick = () => switchView("reglages");
   document.getElementById("newEx").onclick = () => openExerciseForm(null, () => render());
   el.querySelectorAll(".edit-ex").forEach((b) => b.onclick = () => openExerciseForm(exById(b.dataset.id), () => render()));
   el.querySelectorAll(".del-ex-lib").forEach((b) => b.onclick = () => {
@@ -1098,12 +1126,29 @@ function renderPerf(el) {
   }
   if (!state.progExercise || !usedIds.has(state.progExercise)) state.progExercise = used[0].id;
 
+  // Niveaux de force (exercices avec barème présents dans l'historique)
+  const rankable = used.filter((e) => standardFor(e.name));
+  let levelsHtml = "";
+  if (rankable.length) {
+    levelsHtml = `<div class="card"><div class="section-title" style="margin-top:0">🏅 Niveaux de force</div>` +
+      rankable.map((e) => {
+        const cl = currentLevel(e.id);
+        const b = cl && cl.lvl && cl.lvl.idx >= 0
+          ? `<span class="rank tier-${cl.lvl.idx}">${cl.lvl.name}</span>`
+          : `<span class="rank none">—</span>`;
+        return `<div class="level-row"><span>${esc(e.name)}</span>${b}</div>`;
+      }).join("") + `</div>`;
+  }
+
   const options = used.map((e) => `<option value="${e.id}" ${e.id === state.progExercise ? "selected" : ""}>${esc(e.name)}</option>`).join("");
   const data = progressData(state.progExercise);
   const pr = data.reduce((m, d) => Math.max(m, d.top), 0);
   const e1rm = data.reduce((m, d) => Math.max(m, d.e1rm), 0);
+  const selCl = currentLevel(state.progExercise);
+  const selBadge = selCl ? `<div class="rank-badge" style="margin-top:10px">${rankBadgeHtml(selCl.st, selCl.lvl)}</div>` : "";
 
   el.innerHTML = `
+    ${levelsHtml}
     <select class="search" id="progSel">${options}</select>
     <div class="card">
       <div class="stat-row">
@@ -1111,6 +1156,7 @@ function renderPerf(el) {
         <div class="stat"><div class="v">${Math.round(e1rm)}${state.settings.unit}</div><div class="l">1RM estimé</div></div>
         <div class="stat"><div class="v">${data.length}</div><div class="l">séances</div></div>
       </div>
+      ${selBadge}
     </div>
     <div class="card">
       <div class="section-title" style="margin-top:0">Poids de la meilleure série</div>
@@ -1321,6 +1367,9 @@ function lineChartSvg(points, unit) {
 function renderReglages() {
   const el = document.getElementById("view-reglages");
   el.innerHTML = `
+    <button class="btn btn-block nav-card" id="goModeles">🗂️ Mes modèles de séances & minuteurs<span class="chev">›</span></button>
+    <button class="btn btn-block nav-card" id="goExos">📋 Mes exercices<span class="chev">›</span></button>
+    <div class="spacer"></div>
     <div class="card">
       <div class="section-title" style="margin-top:0">Minuteur de repos</div>
       <div class="field"><label>Durée par défaut (secondes) — 0 pour désactiver</label>
@@ -1351,6 +1400,8 @@ function renderReglages() {
     <p class="tiny muted" style="text-align:center">Carnet de Muscu · fonctionne hors-ligne</p>
     <div class="spacer"></div>
   `;
+  document.getElementById("goModeles").onclick = () => switchView("modeles");
+  document.getElementById("goExos").onclick = () => switchView("exercices");
   const restInput = document.getElementById("restInput");
   restInput.onchange = () => {
     state.settings.rest = Math.max(0, parseInt(restInput.value) || 0);
@@ -1474,3 +1525,4 @@ if ("serviceWorker" in navigator) {
    Démarrage
    ============================================================ */
 switchView("seance");
+ensureWakeLock();

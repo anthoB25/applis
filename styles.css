@@ -119,6 +119,16 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
 .rank.tier-5 { color: #ff92bd; border-color: #ff92bd; background: rgba(255,146,189,0.14); }         /* Grand Master */
 .rank.tier-6 { color: #ff6a6a; border-color: #ff6a6a; background: rgba(255,106,106,0.16); }         /* Challenger */
 
+/* Lignes de niveaux dans Progrès */
+.level-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.level-row:last-child { border-bottom: none; }
+.level-row > span:first-child { font-weight: 600; font-size: 14px; }
+
+/* Cartes de navigation (dans Réglages) */
+.nav-card { justify-content: space-between; text-align: left; font-weight: 700; margin-bottom: 10px; padding: 16px 16px; }
+.nav-card .chev { color: var(--text-dim); font-size: 20px; }
+.back-btn { color: var(--text-dim); justify-content: flex-start; }
+
 .set-row { display: grid; grid-template-columns: 30px 1fr 1fr 44px; gap: 8px; align-items: center; padding: 5px 2px; }
 .set-row.head { color: var(--text-dim); font-size: 12px; padding-bottom: 2px; }
 .set-row .idx { text-align: center; color: var(--text-dim); font-weight: 700; }
