@@ -91,6 +91,36 @@ const DEFAULT_TIMERS = [
   { name: "Tabata abdos", type: "timer", mode: "tabata", cfg: { work: 20, rest: 10, rounds: 8 } },
 ];
 
+/* Paliers de force (niveau par exercice) */
+const TIER_NAMES = ["Silver", "Gold", "Platine", "Diamant", "Master", "Grand Master", "Challenger"];
+const STRENGTH_STANDARDS = [
+  { label: "Développé couché", reps: 5, match: ["developpe couche"], tiers: [60, 80, 100, 120, 140, 160, 180] },
+  { label: "Développé incliné", reps: 5, match: ["incline"], tiers: [60, 75, 90, 105, 120, 135, 150] },
+  { label: "Développé militaire", reps: 10, match: ["militaire", "overhead", "ohp"], tiers: [50, 60, 70, 80, 90, 95, 100] },
+  { label: "Tractions lestées", reps: 5, match: ["lest"], tiers: [0, 10, 20, 30, 40, 50, 60] },
+  { label: "Squat", reps: 8, match: ["squat"], tiers: [60, 80, 100, 120, 140, 160, 180] },
+  { label: "Deadlift jambes tendues", reps: 5, match: ["jambes tendues", "romanian", "stiff"], tiers: [100, 120, 140, 160, 180, 200, 220] },
+];
+function norm(s) { return String(s).toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, ""); }
+function standardFor(name) { const n = norm(name); return STRENGTH_STANDARDS.find((st) => st.match.some((m) => n.includes(norm(m)))); }
+/* Niveau à partir du poids + reps de la 1re série (normalisé sur reps de référence, Epley) */
+function computeLevel(st, wStr, rStr) {
+  if (wStr === "" || wStr == null || rStr === "" || rStr == null) return null;
+  const w = Number(wStr), r = Number(rStr);
+  if (isNaN(w) || isNaN(r) || r <= 0 || w < 0) return null;
+  const est1rm = w * (1 + r / 30);
+  const equiv = est1rm / (1 + st.reps / 30); // poids équivalent au nb de reps de référence
+  let idx = -1;
+  for (let i = 0; i < st.tiers.length; i++) if (equiv + 0.001 >= st.tiers[i]) idx = i;
+  return { idx, equiv, name: idx >= 0 ? TIER_NAMES[idx] : null, next: idx < st.tiers.length - 1 ? st.tiers[idx + 1] : null };
+}
+function rankBadgeHtml(st, lvl) {
+  if (!lvl) return `<span class="rank none">🏅 Niveau : —</span>`;
+  if (lvl.idx < 0) return `<span class="rank none">🏅 Objectif Silver : ${st.tiers[0]}kg × ${st.reps}</span>`;
+  const nextTxt = lvl.next != null ? ` · ${TIER_NAMES[lvl.idx + 1]} à ${lvl.next}kg` : " · palier max 🔥";
+  return `<span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span><span class="rank-next">${nextTxt}</span>`;
+}
+
 /* ---------- Stockage ---------- */
 function load(key, fallback) {
   try {
@@ -273,12 +303,15 @@ function renderSeance() {
     const ex = exById(en.exerciseId);
     const prev = lastPerf(en.exerciseId, d.id);
     const meta = [ex ? esc(ex.muscle) : "", en.rest ? "repos " + mmss(en.rest) : "", prev ? "dernier : " + prev : ""].filter(Boolean).join(" · ");
+    const st = ex ? standardFor(ex.name) : null;
+    const badge = st ? `<div class="rank-badge" id="rank-${ei}">${rankBadgeHtml(st, computeLevel(st, en.sets[0] ? en.sets[0].weight : "", en.sets[0] ? en.sets[0].reps : ""))}</div>` : "";
     html += `
       <div class="ex-block" data-ei="${ei}">
         <div class="ex-head">
           <div>
             <div class="name">${esc(ex ? ex.name : "Exercice supprimé")}</div>
             <div class="muscle">${meta}</div>
+            ${badge}
           </div>
           <button class="btn btn-sm btn-ghost del-ex" data-ei="${ei}">🗑</button>
         </div>
@@ -369,12 +402,14 @@ function bindSeance() {
     unghost(r);
     d.entries[+r.dataset.ei].sets[+r.dataset.si].weight = inp.value;
     save(STORE.draft, d);
+    if (+r.dataset.si === 0) updateRank(+r.dataset.ei);
   });
   q(".in-reps", true).forEach((inp) => inp.oninput = () => {
     const r = inp.closest(".set-row");
     unghost(r);
     d.entries[+r.dataset.ei].sets[+r.dataset.si].reps = inp.value;
     save(STORE.draft, d);
+    if (+r.dataset.si === 0) updateRank(+r.dataset.ei);
   });
 
   q(".set-done .check", true).forEach((btn) => btn.onclick = () => {
@@ -419,6 +454,16 @@ function suggestedSet(exId, index, target) {
 function copySet(prev) {
   if (!prev) return { weight: "", reps: "", done: false, target: null, ghost: false };
   return { weight: prev.weight ?? "", reps: prev.reps ?? "", done: false, target: prev.target || null, ghost: true };
+}
+/* Recalcule le badge de niveau d'un exercice (1re série) sans tout redessiner */
+function updateRank(ei) {
+  const el = document.getElementById("rank-" + ei);
+  if (!el || !state.draft) return;
+  const en = state.draft.entries[ei];
+  const ex = en && exById(en.exerciseId);
+  const st = ex && standardFor(ex.name);
+  if (!st) return;
+  el.innerHTML = rankBadgeHtml(st, computeLevel(st, en.sets[0] ? en.sets[0].weight : "", en.sets[0] ? en.sets[0].reps : ""));
 }
 
 function startSession() {
@@ -940,7 +985,10 @@ function showSessionDetail(id) {
   const body = sess.entries.length ? sess.entries.map((en) => {
     const ex = exById(en.exerciseId);
     const sets = en.sets.map((s, i) => `<div class="small">Série ${i + 1} : <b>${s.weight || 0}${state.settings.unit} × ${s.reps || 0}</b></div>`).join("");
-    return `<div class="card"><div style="font-weight:700">${esc(ex?.name || "?")}</div><div class="tiny muted" style="margin-bottom:4px">${esc(ex?.muscle || "")}</div>${sets}</div>`;
+    const st = ex ? standardFor(ex.name) : null;
+    const lvl = st ? computeLevel(st, en.sets[0] ? en.sets[0].weight : "", en.sets[0] ? en.sets[0].reps : "") : null;
+    const badge = st && lvl && lvl.idx >= 0 ? `<div class="rank-badge" style="margin:6px 0 2px"><span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span></div>` : "";
+    return `<div class="card"><div style="font-weight:700">${esc(ex?.name || "?")}</div><div class="tiny muted" style="margin-bottom:4px">${esc(ex?.muscle || "")}</div>${badge}${sets}</div>`;
   }).join("") : `<p class="muted">${sess.note ? "⏱ " + esc(sess.note) : "Séance vide."}</p>`;
   openModal(`
     <h2>${esc(sess.name || "Séance")}</h2>
