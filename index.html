@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0e1116" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Carnet de Muscu</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="app-header">
+      <h1 id="viewTitle">Séance</h1>
+      <div class="header-actions">
+        <button id="installBtn" class="btn-icon hidden" title="Installer l'appli" aria-label="Installer">⬇︎</button>
+      </div>
+    </header>
+
+    <!-- Rest timer banner -->
+    <div id="restBar" class="rest-bar hidden">
+      <span id="restLabel">Repos</span>
+      <span id="restTime" class="rest-time">00:00</span>
+      <button id="restAdd" class="rest-btn">+30s</button>
+      <button id="restStop" class="rest-btn">Stop</button>
+    </div>
+
+    <!-- Views -->
+    <main id="main">
+      <section id="view-seance" class="view"></section>
+      <section id="view-modeles" class="view hidden"></section>
+      <section id="view-historique" class="view hidden"></section>
+      <section id="view-progression" class="view hidden"></section>
+      <section id="view-exercices" class="view hidden"></section>
+      <section id="view-reglages" class="view hidden"></section>
+    </main>
+
+    <!-- Bottom navigation -->
+    <nav class="tabbar">
+      <button class="tab active" data-view="seance">
+        <span class="tab-ico">🏋️</span><span class="tab-lbl">Séance</span>
+      </button>
+      <button class="tab" data-view="modeles">
+        <span class="tab-ico">🗂️</span><span class="tab-lbl">Modèles</span>
+      </button>
+      <button class="tab" data-view="historique">
+        <span class="tab-ico">📅</span><span class="tab-lbl">Journal</span>
+      </button>
+      <button class="tab" data-view="progression">
+        <span class="tab-ico">📈</span><span class="tab-lbl">Progrès</span>
+      </button>
+      <button class="tab" data-view="exercices">
+        <span class="tab-ico">📋</span><span class="tab-lbl">Exos</span>
+      </button>
+      <button class="tab" data-view="reglages">
+        <span class="tab-ico">⚙️</span><span class="tab-lbl">Réglages</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Modal container -->
+  <div id="modal" class="modal-overlay hidden">
+    <div class="modal-box" id="modalBox"></div>
+  </div>
+
+  <!-- Timer runner overlay (EMOM / AMRAP / Tabata…) -->
+  <div id="timer" class="timer-overlay hidden">
+    <div class="timer-inner">
+      <div class="timer-name" id="tName"></div>
+      <div class="timer-phase" id="tPhase"></div>
+      <div class="timer-round" id="tRound"></div>
+      <div class="timer-clock" id="tClock">00:00</div>
+      <div class="timer-total" id="tTotal"></div>
+      <div class="timer-controls">
+        <button class="btn timer-btn" id="tPause">⏸ Pause</button>
+        <button class="btn btn-danger timer-btn" id="tQuit">Quitter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
