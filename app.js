@@ -740,7 +740,7 @@ function renderMuscuBuilder() {
         <b>Exercice ${i + 1}</b>
         <button class="btn btn-sm btn-ghost" data-rmex="${i}">🗑</button>
       </div>
-      <div class="field"><input data-ex="${i}" data-f="name" value="${esc(ex.name)}" placeholder="Nom (ex : Développé couché)" /></div>
+      <div class="field"><input data-ex="${i}" data-f="name" list="exNames" autocomplete="off" value="${esc(ex.name)}" placeholder="Nom (choisis ou tape le tien)" /></div>
       <div class="row">
         <div class="field" style="margin:0"><label>Muscle</label>
           <select data-ex="${i}" data-f="muscle">${muscles.map((m) => `<option ${ex.muscle === m ? "selected" : ""}>${m}</option>`).join("")}</select>
@@ -761,6 +761,7 @@ function renderMuscuBuilder() {
   openModal(`
     <h2>${mb.name ? "Modifier la séance" : "Nouvelle séance"}</h2>
     <div class="field"><label>Nom du modèle</label><input id="mbName" value="${esc(mb.name)}" placeholder="Ex : Lundi — Upper A" /></div>
+    <datalist id="exNames">${state.exercises.slice().sort((a, b) => a.name.localeCompare(b.name, "fr")).map((e) => `<option value="${esc(e.name)}"></option>`).join("")}</datalist>
     <div id="mbExercises">${exHtml}</div>
     <button class="btn btn-block" id="mbAddEx">＋ Ajouter un exercice</button>
     <div class="spacer"></div>
@@ -790,6 +791,16 @@ function syncMuscuFromDOM() {
 
 function bindMuscuBuilder() {
   document.getElementById("mbCancel").onclick = closeModal;
+  // Quand on choisit/tape un exo déjà connu, remplir son groupe musculaire
+  document.querySelectorAll('[data-f="name"]').forEach((inp) => inp.onchange = () => {
+    const i = +inp.dataset.ex;
+    const found = state.exercises.find((e) => e.name.toLowerCase() === inp.value.trim().toLowerCase());
+    if (found) {
+      mb.exercises[i].muscle = found.muscle;
+      const sel = document.querySelector(`[data-ex="${i}"][data-f="muscle"]`);
+      if (sel) sel.value = found.muscle;
+    }
+  });
   document.getElementById("mbAddEx").onclick = () => { syncMuscuFromDOM(); mb.exercises.push(blankBuildEx()); renderMuscuBuilder(); };
   document.querySelectorAll("[data-rmex]").forEach((b) => b.onclick = () => {
     syncMuscuFromDOM(); mb.exercises.splice(+b.dataset.rmex, 1);
