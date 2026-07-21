@@ -111,6 +111,7 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
 .rank { display: inline-flex; align-items: center; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); }
 .rank.none { color: var(--text-dim); font-weight: 600; }
 .rank-next { font-size: 11px; color: var(--text-dim); }
+.rank.bronze { color: #d08a4e; border-color: #d08a4e; background: rgba(208,138,78,0.12); }            /* Bronze */
 .rank.tier-0 { color: #c7ced8; border-color: #c7ced8; background: rgba(199,206,216,0.10); }        /* Silver */
 .rank.tier-1 { color: #ffcf4a; border-color: #ffcf4a; background: rgba(255,207,74,0.12); }         /* Gold */
 .rank.tier-2 { color: #8fe3dc; border-color: #8fe3dc; background: rgba(143,227,220,0.12); }         /* Platine */
@@ -128,6 +129,13 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
 .nav-card { justify-content: space-between; text-align: left; font-weight: 700; margin-bottom: 10px; padding: 16px 16px; }
 .nav-card .chev { color: var(--text-dim); font-size: 20px; }
 .back-btn { color: var(--text-dim); justify-content: flex-start; }
+
+/* Interrupteur (réglages) */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.switch-row input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 46px; height: 28px; border-radius: 999px; background: var(--bg-elev2); border: 1px solid var(--line); position: relative; flex: 0 0 auto; transition: background .15s; }
+.switch-row input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: var(--text-dim); transition: transform .15s, background .15s; }
+.switch-row input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.switch-row input[type="checkbox"]:checked::after { transform: translateX(18px); background: #1a0e06; }
 
 .set-row { display: grid; grid-template-columns: 30px 1fr 1fr 44px; gap: 8px; align-items: center; padding: 5px 2px; }
 .set-row.head { color: var(--text-dim); font-size: 12px; padding-bottom: 2px; }
@@ -194,7 +202,7 @@ svg.chart { display: block; width: 100%; height: 180px; }
 
 /* Sélecteur segmenté (Performances / Mensurations) */
 .segmented { display: flex; gap: 6px; background: var(--bg-elev); border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin-bottom: 14px; }
-.seg { flex: 1; background: none; border: none; color: var(--text-dim); border-radius: 9px; padding: 10px 6px; font-weight: 700; font-size: 14px; }
+.seg { flex: 1; min-width: 0; background: none; border: none; color: var(--text-dim); border-radius: 9px; padding: 10px 4px; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seg.on { background: var(--bg-elev2); color: var(--text); }
 
 /* Tuiles de mensurations */
@@ -208,13 +216,24 @@ svg.chart { display: block; width: 100%; height: 180px; }
 .delta.down { color: #4aa3e0; }
 .measure-item { width: 100%; text-align: left; }
 
-/* Rest timer bar */
+/* Carte musculaire (heatmap) */
+.body-wrap { display: block; }
+.body-cols { display: flex; gap: 10px; justify-content: center; align-items: flex-start; }
+.body-col { flex: 1; min-width: 0; text-align: center; }
+.bodymap { display: block; width: 100%; max-width: 175px; margin: 0 auto; height: auto; }
+.bodymap .body { fill: #cfd6df; stroke: #10141a; stroke-width: 0.6; }
+.bodymap .m { fill: #e6ebf1; stroke: #10141a; stroke-width: 0.6; transition: fill .25s ease; cursor: pointer; }
+.body-lbl2 { color: var(--text-dim); font-size: 12px; font-weight: 700; margin-top: 6px; }
+.heat-legend { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
+.heat-bar { flex: 1; height: 8px; border-radius: 999px; background: linear-gradient(90deg, rgb(227,232,239), rgb(255,214,90), rgb(255,140,60), rgb(240,70,55), rgb(214,40,40)); }
+
+/* Rest timer bar — fixe en haut, toujours visible même avec le clavier ouvert */
 .rest-bar {
-  position: sticky; top: calc(52px + var(--safe-t)); z-index: 18;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60;
   display: flex; align-items: center; gap: 10px;
-  margin: 0 16px 8px; padding: 10px 14px;
-  background: var(--accent); color: #1a0e06; border-radius: 12px; font-weight: 700;
-  box-shadow: 0 4px 20px rgba(255,107,53,0.3);
+  padding: calc(10px + var(--safe-t)) 16px 10px; margin: 0;
+  background: var(--accent); color: #1a0e06; border-radius: 0 0 14px 14px; font-weight: 700;
+  box-shadow: 0 6px 24px rgba(255,107,53,0.4);
 }
 .rest-bar .rest-time { font-variant-numeric: tabular-nums; font-size: 20px; margin-right: auto; }
 .rest-bar .rest-btn { background: rgba(0,0,0,0.18); color: #1a0e06; border: none; border-radius: 8px; padding: 7px 10px; font-weight: 700; font-size: 13px; }

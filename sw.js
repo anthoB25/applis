@@ -1,10 +1,11 @@
 /* Service worker — cache l'app pour le mode hors-ligne */
-const CACHE = "carnet-muscu-v6";
+const CACHE = "carnet-muscu-v14";
 const ASSETS = [
   ".",
   "index.html",
   "styles.css",
   "app.js",
+  "bodydata.js",
   "manifest.webmanifest",
   "icons/icon-192.png",
   "icons/icon-512.png",

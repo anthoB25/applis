@@ -66,8 +66,8 @@ const DEFAULT_PROGRAMS = [
   {
     name: "Lower", type: "muscu",
     exercises: [
-      { name: "High bar squat ou deadlift", muscle: "Jambes", sets: ["6-10", "6-10", "6-10"], rest: 120, comment: "" },
-      { name: "Romanian deadlift ou fentes", muscle: "Jambes", sets: ["10-15", "10-15", "10-15"], rest: 90, comment: "" },
+      { name: "Squat", muscle: "Jambes", sets: ["6-10", "6-10", "6-10"], rest: 120, comment: "" },
+      { name: "Deadlift jambes tendues", muscle: "Jambes", sets: ["10-15", "10-15", "10-15"], rest: 90, comment: "" },
       { name: "Leg curl + leg extension", muscle: "Jambes", sets: ["8-12", "8-12", "8-12"], rest: 30, comment: "Superset : se reposer 30 s entre chaque exercice" },
       { name: "Extensions mollets", muscle: "Jambes", sets: ["12-15", "8-12", "6-10 + AMRAP dégressive"], rest: 60, comment: "Tempo 1-2-2-1" },
       { name: "Upright row penché", muscle: "Épaules", sets: ["15-20", "10-15", "6-10 + AMRAP dégressive"], rest: 60, comment: "Augmenter le poids à chaque série" },
@@ -95,7 +95,7 @@ const DEFAULT_TIMERS = [
 const TIER_NAMES = ["Silver", "Gold", "Platine", "Diamant", "Master", "Grand Master", "Challenger"];
 const STRENGTH_STANDARDS = [
   { label: "Développé couché", reps: 5, match: ["developpe couche"], tiers: [60, 80, 100, 120, 140, 160, 180] },
-  { label: "Développé incliné", reps: 5, match: ["incline"], tiers: [60, 75, 90, 105, 120, 135, 150] },
+  { label: "Développé incliné", reps: 5, match: ["developpe incline"], tiers: [60, 75, 90, 105, 120, 135, 150] },
   { label: "Développé militaire", reps: 10, match: ["militaire", "overhead", "ohp"], tiers: [50, 60, 70, 80, 90, 95, 100] },
   { label: "Tractions lestées", reps: 5, match: ["lest"], tiers: [0, 10, 20, 30, 40, 50, 60] },
   { label: "Squat", reps: 8, match: ["squat"], tiers: [60, 80, 100, 120, 140, 160, 180] },
@@ -116,9 +116,15 @@ function computeLevel(st, wStr, rStr) {
 }
 function rankBadgeHtml(st, lvl) {
   if (!lvl) return `<span class="rank none">🏅 Niveau : —</span>`;
-  if (lvl.idx < 0) return `<span class="rank none">🏅 Objectif Silver : ${st.tiers[0]}kg × ${st.reps}</span>`;
+  if (lvl.idx < 0) return `<span class="rank bronze">🥉 Bronze</span><span class="rank-next"> · Silver à ${st.tiers[0]}kg × ${st.reps}</span>`;
   const nextTxt = lvl.next != null ? ` · ${TIER_NAMES[lvl.idx + 1]} à ${lvl.next}kg` : " · palier max 🔥";
   return `<span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span><span class="rank-next">${nextTxt}</span>`;
+}
+/* Petit badge de niveau (nom seul) pour les listes/journal */
+function rankChip(lvl) {
+  if (!lvl) return `<span class="rank none">—</span>`;
+  if (lvl.idx < 0) return `<span class="rank bronze">🥉 Bronze</span>`;
+  return `<span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span>`;
 }
 /* Niveau actuel d'un exercice, calculé sur la 1re série de sa dernière séance */
 function currentLevel(exId) {
@@ -176,6 +182,31 @@ if (!state.settings.migDayNames) {
   state.programs.forEach((p) => { if (p.name) p.name = p.name.replace(dayRe, "").trim(); });
   state.settings.migDayNames = true;
   save(STORE.programs, state.programs);
+  save(STORE.settings, state.settings);
+}
+
+// Migration : renommer les exos de la séance Lower (Squat / Deadlift jambes tendues)
+if (!state.settings.migLowerExos) {
+  const rn = { "high bar squat ou deadlift": "Squat", "romanian deadlift ou fentes": "Deadlift jambes tendues" };
+  const relabel = (name) => rn[String(name).toLowerCase()] || name;
+  state.programs.forEach((p) => (p.exercises || []).forEach((ex) => { ex.name = relabel(ex.name); }));
+  state.exercises.forEach((e) => { e.name = relabel(e.name); });
+
+  // Dédupliquer la bibliothèque par nom (repointer séances/brouillon vers l'exemplaire conservé)
+  const byName = {}, remap = {};
+  state.exercises.forEach((e) => {
+    const k = e.name.toLowerCase();
+    if (byName[k]) remap[e.id] = byName[k]; else byName[k] = e.id;
+  });
+  state.exercises = state.exercises.filter((e) => !remap[e.id]);
+  const fix = (entries) => (entries || []).forEach((en) => { if (remap[en.exerciseId]) en.exerciseId = remap[en.exerciseId]; });
+  state.sessions.forEach((s) => fix(s.entries));
+  if (state.draft) fix(state.draft.entries);
+
+  state.settings.migLowerExos = true;
+  save(STORE.programs, state.programs);
+  save(STORE.ex, state.exercises);
+  save(STORE.sessions, state.sessions);
   save(STORE.settings, state.settings);
 }
 
@@ -302,7 +333,10 @@ function renderSeance() {
           <div style="font-weight:800;font-size:17px">${esc(d.name || "Séance du jour")}</div>
           <div class="small muted">${fmtDate(d.date)}</div>
         </div>
-        <button class="btn btn-sm btn-ghost" id="renameBtn">✎</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" id="timerBtn">⏱ Minuteur</button>
+          <button class="btn btn-sm btn-ghost" id="renameBtn">✎</button>
+        </div>
       </div>
       <div class="stat-row">
         <div class="stat"><div class="v">${totals.sets}</div><div class="l">séries faites</div></div>
@@ -381,6 +415,8 @@ function bindSeance() {
     const name = prompt("Nom de la séance :", d.name || "Séance du jour");
     if (name !== null) { d.name = name.trim() || "Séance du jour"; save(STORE.draft, d); render(); }
   };
+  const timerBtn = q("#timerBtn");
+  if (timerBtn) timerBtn.onclick = openTimerPicker;
 
   q("#addExBtn").onclick = () => openExercisePicker((exId) => {
     d.entries.push({ exerciseId: exId, comment: "", rest: state.settings.rest, sets: [suggestedSet(exId, 0, null)] });
@@ -428,12 +464,13 @@ function bindSeance() {
   q(".set-done .check", true).forEach((btn) => btn.onclick = () => {
     const r = btn.closest(".set-row");
     const ei = +r.dataset.ei;
-    const set = d.entries[ei].sets[+r.dataset.si];
+    const si = +r.dataset.si;
+    const set = d.entries[ei].sets[si];
     set.done = !set.done;
     if (set.done) set.ghost = false; // cocher valide la suggestion
     save(STORE.draft, d);
     const rest = (d.entries[ei].rest != null ? d.entries[ei].rest : state.settings.rest);
-    if (set.done && rest > 0) startRest(rest);
+    if (set.done) { evaluatePerf(ei, si); if (rest > 0) startRest(rest); }
     render();
   });
 }
@@ -468,6 +505,48 @@ function copySet(prev) {
   if (!prev) return { weight: "", reps: "", done: false, target: null, ghost: false };
   return { weight: prev.weight ?? "", reps: prev.reps ?? "", done: false, target: prev.target || null, ghost: true };
 }
+/* Sons de performance à la validation d'une série (record / moins bien) */
+function evaluatePerf(ei, si) {
+  if (state.settings.sounds === false) return;
+  const en = state.draft && state.draft.entries[ei];
+  if (!en) return;
+  const set = en.sets[si];
+  if (set.weight === "" || set.weight == null || set.reps === "" || set.reps == null) return;
+  const w = Number(set.weight), r = Number(set.reps);
+  if (isNaN(w) || isNaN(r) || r <= 0 || w < 0) return;
+  const e1 = w * (1 + r / 30);
+
+  // Record de tous les temps (séances passées uniquement)
+  let allBest = 0, hasHist = false;
+  state.sessions.forEach((s) => s.entries.forEach((entry) => {
+    if (entry.exerciseId === en.exerciseId) entry.sets.forEach((x) => {
+      const xr = Number(x.reps) || 0;
+      if (xr > 0) { hasHist = true; const xe = (Number(x.weight) || 0) * (1 + xr / 30); if (xe > allBest) allBest = xe; }
+    });
+  }));
+  if (hasHist && e1 > allBest + 0.01) {
+    if (!state._prPlayed) state._prPlayed = {};
+    if (!state._prPlayed[en.exerciseId]) {
+      state._prPlayed[en.exerciseId] = true;
+      playPR(); toast("🏆 Nouveau record !");
+      return;
+    }
+  }
+
+  // Comparaison à la même série de la dernière séance
+  const last = lastEntry(en.exerciseId);
+  const ls = last && last.sets[si];
+  if (ls) {
+    const lw = Number(ls.weight), lr = Number(ls.reps);
+    if (!isNaN(lw) && !isNaN(lr) && lr > 0) {
+      // "moins bien" : charge PAS augmentée ET reps inférieures
+      if (w <= lw && r < lr) { playWorse(); return; }
+      // amélioration : plus de charge, ou même charge avec plus de reps
+      if (w > lw || (w === lw && r > lr)) { playBetter(); return; }
+    }
+  }
+}
+
 /* Recalcule le badge de niveau d'un exercice (1re série) sans tout redessiner */
 function updateRank(ei) {
   const el = document.getElementById("rank-" + ei);
@@ -481,6 +560,7 @@ function updateRank(ei) {
 
 function startSession() {
   state.draft = { id: uid(), date: new Date().toISOString(), name: "Séance du jour", entries: [] };
+  state._prPlayed = {};
   save(STORE.draft, state.draft);
   switchView("seance");
 }
@@ -501,6 +581,7 @@ function startFromProgram(prog) {
       }),
     };
     state.draft = draft;
+    state._prPlayed = {};
     save(STORE.draft, draft);
     switchView("seance");
     toast("Séance chargée 💪");
@@ -832,6 +913,72 @@ function tone(freq, dur, vol) {
 }
 function vibe(p) { if (navigator.vibrate) navigator.vibrate(p); }
 
+/* ---- Sons de performance (records / moins bien) ---- */
+function ensureAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  } catch (e) { return null; }
+}
+function scheduleTone(freq, at, dur, vol, type) {
+  const c = audioCtx;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = type || "square"; o.frequency.setValueAtTime(freq, at);
+  o.connect(g); g.connect(c.destination);
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(vol, at + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  o.start(at); o.stop(at + dur + 0.03);
+}
+function playMelody(notes, type) {
+  const c = ensureAudio();
+  if (!c) return;
+  const t0 = c.currentTime + 0.03;
+  notes.forEach((n) => scheduleTone(n.f, t0 + n.t, n.d, n.v == null ? 0.3 : n.v, n.type || type));
+}
+function playPR() {
+  playMelody([
+    { f: 523.25, t: 0, d: 0.12 }, { f: 659.25, t: 0.10, d: 0.12 }, { f: 783.99, t: 0.20, d: 0.12 },
+    { f: 1046.5, t: 0.30, d: 0.26 }, { f: 1046.5, t: 0.60, d: 0.10 }, { f: 1318.5, t: 0.72, d: 0.34 },
+  ], "square");
+}
+function playBetter() {
+  playMelody([{ f: 659.25, t: 0, d: 0.10, v: 0.26 }, { f: 987.77, t: 0.10, d: 0.16, v: 0.26 }], "triangle");
+}
+function playWorse() {
+  playMelody([
+    { f: 392.0, t: 0, d: 0.18, v: 0.24 }, { f: 329.63, t: 0.19, d: 0.2, v: 0.24 }, { f: 261.63, t: 0.41, d: 0.36, v: 0.24 },
+  ], "sawtooth");
+}
+/* Garde le contexte audio actif pendant le minuteur (sinon le bip final se
+   perd quand une autre appli — musique — prend le focus audio) */
+function startTimerAudio() {
+  const c = ensureAudio();
+  if (!c || !T) return;
+  try {
+    const o = c.createOscillator(), g = c.createGain();
+    g.gain.value = 0.0001; o.frequency.value = 30;
+    o.connect(g); g.connect(c.destination); o.start();
+    T._ka = o;
+  } catch (e) {}
+}
+function stopTimerAudio() {
+  try { if (T && T._ka) { T._ka.stop(); T._ka.disconnect(); T._ka = null; } } catch (e) {}
+}
+/* Alerte de fin de minuteur : forte (passe par-dessus la musique) + vibration */
+function playTimerEnd() {
+  const c = ensureAudio();
+  if (c) {
+    const t0 = c.currentTime + 0.03;
+    scheduleTone(1000, t0, 0.22, 0.55, "square");
+    scheduleTone(1000, t0 + 0.30, 0.22, 0.55, "square");
+    scheduleTone(1000, t0 + 0.60, 0.22, 0.55, "square");
+    scheduleTone(1320, t0 + 0.90, 0.45, 0.55, "square");
+  }
+  vibe([220, 120, 220, 120, 450]);
+}
+
 /* Empêche l'écran de se verrouiller tant que l'appli est ouverte (au 1er plan).
    Le verrou est libéré par le navigateur quand la page passe en arrière-plan
    et re-demandé automatiquement au retour. */
@@ -862,12 +1009,33 @@ function buildPhases(p) {
   return ph;
 }
 
+/* Choix d'un minuteur à lancer à la main pendant la séance */
+function openTimerPicker() {
+  const timers = state.programs.filter((p) => p.type === "timer");
+  const list = timers.map((p) => `
+    <button class="btn btn-block" data-tid="${p.id}" style="justify-content:space-between;margin-bottom:8px">
+      <span>⏱ ${esc(p.name)}</span><span class="tiny muted">${esc(timerSummary(p))}</span>
+    </button>`).join("");
+  openModal(`
+    <h2>Lancer un minuteur</h2>
+    <button class="btn btn-primary btn-block" id="quickChrono">▶ Chrono (compte en avant)</button>
+    ${timers.length ? `<div class="section-title">Tes minuteurs</div>${list}` : `<p class="small muted" style="margin-top:12px">Astuce : crée des EMOM, Tabata… dans Réglages → Mes modèles.</p>`}
+    <button class="btn btn-ghost btn-block" id="tpCancel" style="margin-top:8px">Fermer</button>
+  `);
+  document.getElementById("quickChrono").onclick = () => { closeModal(); openTimer({ name: "Chrono", mode: "chrono", cfg: {} }); };
+  document.getElementById("tpCancel").onclick = closeModal;
+  document.querySelectorAll("#modalBox [data-tid]").forEach((b) => b.onclick = () => {
+    const p = state.programs.find((x) => x.id === b.dataset.tid);
+    closeModal(); openTimer(p);
+  });
+}
+
 function openTimer(prog) {
   const overlay = document.getElementById("timer");
   document.getElementById("tName").textContent = prog.name;
   overlay.classList.remove("hidden");
   ensureWakeLock();
-  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  ensureAudio();
 
   if (prog.mode === "chrono") {
     T = { prog, chrono: true, startAt: Date.now(), paused: false, elapsed: 0 };
@@ -882,6 +1050,7 @@ function openTimer(prog) {
     startPhase(0);
     T.tick = setInterval(tickTimer, 100);
   }
+  startTimerAudio();
   bindTimerControls();
 }
 
@@ -893,7 +1062,6 @@ function startPhase(i) {
   T.lastBeep = null;
   document.getElementById("timer").dataset.kind = ph.kind;
   tone(ph.kind === "rest" ? 520 : 900, 0.18, 0.35);
-  vibe(ph.kind === "rest" ? 40 : 90);
   updateTimerUI(ph, ph.seconds);
 }
 
@@ -903,7 +1071,7 @@ function tickTimer() {
   const rem = (T.phaseEndsAt - Date.now()) / 1000;
   if (rem <= 0.05) { startPhase(T.idx + 1); return; }
   const whole = Math.ceil(rem);
-  if (whole <= 3 && whole !== T.lastBeep) { T.lastBeep = whole; tone(680, 0.08, 0.25); vibe(20); }
+  if (whole <= 3 && whole !== T.lastBeep) { T.lastBeep = whole; tone(680, 0.08, 0.25); }
   updateTimerUI(ph, rem);
 }
 
@@ -931,7 +1099,8 @@ function finishTimer() {
   document.getElementById("tPhase").textContent = "Terminé 💪";
   document.getElementById("tRound").textContent = "";
   document.getElementById("tClock").textContent = "✓";
-  tone(1000, 0.5, 0.4); vibe([120, 60, 120, 60, 220]);
+  stopTimerAudio();
+  playTimerEnd();
   const ctrl = document.querySelector(".timer-controls");
   ctrl.innerHTML = `
     <button class="btn btn-green timer-btn" id="tLog">Enregistrer au journal</button>
@@ -966,6 +1135,7 @@ function bindTimerControls() {
 
 function closeTimer() {
   if (T && T.tick) clearInterval(T.tick);
+  stopTimerAudio();
   T = null;
   // on garde le verrou d'écran actif tant que l'appli reste ouverte
   const overlay = document.getElementById("timer");
@@ -1013,7 +1183,7 @@ function showSessionDetail(id) {
     const sets = en.sets.map((s, i) => `<div class="small">Série ${i + 1} : <b>${s.weight || 0}${state.settings.unit} × ${s.reps || 0}</b></div>`).join("");
     const st = ex ? standardFor(ex.name) : null;
     const lvl = st ? computeLevel(st, en.sets[0] ? en.sets[0].weight : "", en.sets[0] ? en.sets[0].reps : "") : null;
-    const badge = st && lvl && lvl.idx >= 0 ? `<div class="rank-badge" style="margin:6px 0 2px"><span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span></div>` : "";
+    const badge = st && lvl ? `<div class="rank-badge" style="margin:6px 0 2px">${rankChip(lvl)}</div>` : "";
     return `<div class="card"><div style="font-weight:700">${esc(ex?.name || "?")}</div><div class="tiny muted" style="margin-bottom:4px">${esc(ex?.muscle || "")}</div>${badge}${sets}</div>`;
   }).join("") : `<p class="muted">${sess.note ? "⏱ " + esc(sess.note) : "Séance vide."}</p>`;
   openModal(`
@@ -1105,14 +1275,17 @@ function renderProgression() {
   const el = document.getElementById("view-progression");
   el.innerHTML = `
     <div class="segmented">
-      <button class="seg ${state.progMode === "perf" ? "on" : ""}" data-mode="perf">🏋️ Performances</button>
-      <button class="seg ${state.progMode === "mensu" ? "on" : ""}" data-mode="mensu">📏 Mensurations</button>
+      <button class="seg ${state.progMode === "perf" ? "on" : ""}" data-mode="perf">🏋️ Perfs</button>
+      <button class="seg ${state.progMode === "mensu" ? "on" : ""}" data-mode="mensu">📏 Mesures</button>
+      <button class="seg ${state.progMode === "muscles" ? "on" : ""}" data-mode="muscles">🔥 Muscles</button>
     </div>
     <div id="progBody"></div>
   `;
   el.querySelectorAll(".seg").forEach((b) => b.onclick = () => { state.progMode = b.dataset.mode; renderProgression(); });
-  if (state.progMode === "mensu") renderMensurations(document.getElementById("progBody"));
-  else renderPerf(document.getElementById("progBody"));
+  const body = document.getElementById("progBody");
+  if (state.progMode === "mensu") renderMensurations(body);
+  else if (state.progMode === "muscles") renderMuscleMap(body);
+  else renderPerf(body);
 }
 
 function renderPerf(el) {
@@ -1133,10 +1306,7 @@ function renderPerf(el) {
     levelsHtml = `<div class="card"><div class="section-title" style="margin-top:0">🏅 Niveaux de force</div>` +
       rankable.map((e) => {
         const cl = currentLevel(e.id);
-        const b = cl && cl.lvl && cl.lvl.idx >= 0
-          ? `<span class="rank tier-${cl.lvl.idx}">${cl.lvl.name}</span>`
-          : `<span class="rank none">—</span>`;
-        return `<div class="level-row"><span>${esc(e.name)}</span>${b}</div>`;
+        return `<div class="level-row"><span>${esc(e.name)}</span>${rankChip(cl ? cl.lvl : null)}</div>`;
       }).join("") + `</div>`;
   }
 
@@ -1362,6 +1532,176 @@ function lineChartSvg(points, unit) {
 }
 
 /* ============================================================
+   Carte musculaire (sollicitation par séance / semaine / 7 jours)
+   ============================================================ */
+const MUSCLE_LABELS = {
+  pectoraux: "Pectoraux", epaules: "Épaules", biceps: "Biceps", triceps: "Triceps",
+  avantbras: "Avant-bras", abdos: "Abdos", dorsaux: "Dorsaux", trapezes: "Trapèzes",
+  lombaires: "Lombaires", quadriceps: "Quadriceps", ischios: "Ischios", fessiers: "Fessiers", mollets: "Mollets",
+};
+const MUSCLE_KEYS = Object.keys(MUSCLE_LABELS);
+
+/* Activation approximative par exercice (primaire ~1, secondaire ~0.3-0.7) */
+const MUSCLE_RULES = [
+  { kw: ["developpe couche", "bench"], m: { pectoraux: 1, triceps: 0.5, epaules: 0.4 } },
+  { kw: ["developpe incline"], m: { pectoraux: 1, epaules: 0.5, triceps: 0.4 } },
+  { kw: ["developpe militaire", "overhead", "ohp", "shoulder press", "developpe epaule"], m: { epaules: 1, triceps: 0.5, trapezes: 0.3 } },
+  { kw: ["ecarte", "pec deck", "butterfly", "fly"], m: { pectoraux: 1 } },
+  { kw: ["dips"], m: { triceps: 1, pectoraux: 0.6, epaules: 0.3 } },
+  { kw: ["souleve de terre", "deadlift"], not: ["jambes tendues", "romanian", "stiff"], m: { lombaires: 1, fessiers: 0.8, ischios: 0.7, dorsaux: 0.6, trapezes: 0.5, quadriceps: 0.5 } },
+  { kw: ["jambes tendues", "romanian", "stiff", "good morning"], m: { ischios: 1, fessiers: 0.8, lombaires: 0.6 } },
+  { kw: ["traction", "tirage vertical", "tirage nuque", "lat pulldown", "pull up", "pullup", "pull-up"], m: { dorsaux: 1, biceps: 0.5, trapezes: 0.4, avantbras: 0.3 } },
+  { kw: ["rowing", "tirage horizontal", "seal row"], m: { dorsaux: 1, trapezes: 0.6, biceps: 0.4, lombaires: 0.3 } },
+  { kw: ["curl"], not: ["leg curl", "nordic"], m: { biceps: 1, avantbras: 0.4 } },
+  { kw: ["triceps", "barre au front", "pushdown", "kickback", "skull"], m: { triceps: 1 } },
+  { kw: ["squat", "presse", "leg press", "hack"], m: { quadriceps: 1, fessiers: 0.7, ischios: 0.4, lombaires: 0.2, abdos: 0.2 } },
+  { kw: ["fente", "lunge", "split squat", "bulgare"], m: { quadriceps: 0.9, fessiers: 0.8, ischios: 0.4 } },
+  { kw: ["leg curl", "ischio", "hamstring"], m: { ischios: 1 } },
+  { kw: ["leg extension", "extension jambe"], m: { quadriceps: 1 } },
+  { kw: ["mollet", "calf"], m: { mollets: 1 } },
+  { kw: ["laterale", "lateral raise"], m: { epaules: 1 } },
+  { kw: ["frontale", "front raise"], m: { epaules: 1 } },
+  { kw: ["oiseau", "rear delt", "face pull", "reverse fly"], m: { epaules: 0.8, trapezes: 0.5, dorsaux: 0.3 } },
+  { kw: ["upright row", "tirage menton", "menton"], m: { epaules: 0.8, trapezes: 0.8, biceps: 0.3 } },
+  { kw: ["shrug", "haussement", "trapeze"], m: { trapezes: 1 } },
+  { kw: ["hip thrust", "fessier", "glute", "pont"], m: { fessiers: 1, ischios: 0.4 } },
+  { kw: ["gainage", "plank", "crunch", "abdo", "releve de jambe", "sit up", "oblique", "vacuum"], m: { abdos: 1 } },
+];
+const MUSCLE_FALLBACK = {
+  "Pectoraux": { pectoraux: 1, triceps: 0.3, epaules: 0.3 },
+  "Dos": { dorsaux: 1, biceps: 0.4, trapezes: 0.4, lombaires: 0.2 },
+  "Épaules": { epaules: 1, trapezes: 0.3 },
+  "Biceps": { biceps: 1, avantbras: 0.3 },
+  "Triceps": { triceps: 1 },
+  "Jambes": { quadriceps: 0.7, ischios: 0.5, fessiers: 0.6, mollets: 0.3 },
+  "Abdos": { abdos: 1 },
+};
+
+function musclesForExercise(ex) {
+  const n = norm(ex.name);
+  const acc = {};
+  let matched = false;
+  MUSCLE_RULES.forEach((rule) => {
+    if (rule.not && rule.not.some((k) => n.includes(norm(k)))) return;
+    if (rule.kw.some((k) => n.includes(norm(k)))) {
+      matched = true;
+      for (const mk in rule.m) acc[mk] = Math.max(acc[mk] || 0, rule.m[mk]);
+    }
+  });
+  if (!matched && MUSCLE_FALLBACK[ex.muscle]) {
+    const fb = MUSCLE_FALLBACK[ex.muscle];
+    for (const mk in fb) acc[mk] = Math.max(acc[mk] || 0, fb[mk]);
+  }
+  return acc;
+}
+
+function sessionsInPeriod(period) {
+  if (period === "seance") {
+    if (state.draft && state.draft.entries.some((en) => en.sets.some((s) => s.done))) return [state.draft];
+    return state.sessions[0] ? [state.sessions[0]] : [];
+  }
+  const now = Date.now();
+  let start;
+  if (period === "7j") start = now - 7 * 864e5;
+  else { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - day); start = d.getTime(); }
+  const list = state.sessions.filter((s) => new Date(s.date).getTime() >= start);
+  if (state.draft && new Date(state.draft.date).getTime() >= start) list.push(state.draft);
+  return list;
+}
+
+function muscleActivation(period) {
+  const acc = {}; MUSCLE_KEYS.forEach((k) => acc[k] = 0);
+  sessionsInPeriod(period).forEach((sess) => sess.entries.forEach((en) => {
+    const ex = exById(en.exerciseId);
+    if (!ex) return;
+    const nSets = en.sets.filter((s) => s.done && (Number(s.reps) > 0 || Number(s.weight) > 0)).length;
+    if (!nSets) return;
+    const mm = musclesForExercise(ex);
+    for (const mk in mm) acc[mk] += mm[mk] * nSets;
+  }));
+  return acc;
+}
+
+function heatColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops = [[0, [227, 232, 239]], [0.2, [255, 214, 90]], [0.5, [255, 140, 60]], [0.8, [240, 70, 55]], [1, [214, 40, 40]]];
+  for (let i = 1; i < stops.length; i++) {
+    if (t <= stops[i][0]) {
+      const a = stops[i - 1], b = stops[i], f = (t - a[0]) / ((b[0] - a[0]) || 1);
+      const c = [0, 1, 2].map((j) => Math.round(a[1][j] + (b[1][j] - a[1][j]) * f));
+      return `rgb(${c[0]},${c[1]},${c[2]})`;
+    }
+  }
+  return "rgb(214,40,40)";
+}
+
+var SLUG_TO_KEY = {
+  CHEST: "pectoraux", OBLIQUES: "abdos", ABS: "abdos", BICEPS: "biceps", TRICEPS: "triceps",
+  FRONT_DELTOIDS: "epaules", BACK_DELTOIDS: "epaules", QUADRICEPS: "quadriceps",
+  CALVES: "mollets", LEFT_SOLEUS: "mollets", RIGHT_SOLEUS: "mollets", FOREARM: "avantbras",
+  TRAPEZIUS: "trapezes", UPPER_BACK: "dorsaux", LOWER_BACK: "lombaires", GLUTEAL: "fessiers",
+  HAMSTRING: "ischios", ABDUCTORS: "fessiers", ABDUCTOR: "fessiers",
+};
+function polysToSvg(list) {
+  return list.map((o) => {
+    const key = SLUG_TO_KEY[o.m];
+    const cls = key ? "m" : "body";
+    const attr = key ? ` data-m="${key}"` : "";
+    return o.polys.map((p) => {
+      let pts = "";
+      for (let i = 0; i < p.length; i += 2) pts += p[i] + "," + p[i + 1] + " ";
+      return `<polygon class="${cls}"${attr} points="${pts.trim()}"/>`;
+    }).join("");
+  }).join("");
+}
+function buildBodySvg() {
+  const D = window.BODY_DATA;
+  if (!D) return `<p class="small muted" style="text-align:center">Modèle indisponible.</p>`;
+  return `
+    <div class="body-cols">
+      <div class="body-col">
+        <svg class="bodymap" viewBox="0 0 100 220" xmlns="http://www.w3.org/2000/svg">${polysToSvg(D.front)}</svg>
+        <div class="body-lbl2">Face</div>
+      </div>
+      <div class="body-col">
+        <svg class="bodymap" viewBox="0 0 100 220" xmlns="http://www.w3.org/2000/svg">${polysToSvg(D.back)}</svg>
+        <div class="body-lbl2">Dos</div>
+      </div>
+    </div>`;
+}
+function renderMuscleMap(el) {
+  const ranges = [["seance", "Séance"], ["semaine", "Semaine"], ["7j", "7 jours"]];
+  if (!state.muscleRange) state.muscleRange = "seance";
+  const acc = muscleActivation(state.muscleRange);
+  const max = Math.max(0, ...MUSCLE_KEYS.map((k) => acc[k]));
+  const hasData = max > 0;
+  const top = MUSCLE_KEYS.map((k) => ({ k, v: acc[k] })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
+
+  el.innerHTML = `
+    <div class="segmented">${ranges.map(([v, l]) => `<button class="seg ${state.muscleRange === v ? "on" : ""}" data-range="${v}">${l}</button>`).join("")}</div>
+    <div class="card">
+      <div class="body-wrap">${buildBodySvg()}</div>
+      ${hasData
+        ? `<div class="heat-legend"><span>peu</span><i class="heat-bar"></i><span>beaucoup</span></div>`
+        : `<p class="small muted" style="text-align:center;margin:6px 0 0">Aucune série sur cette période.</p>`}
+    </div>
+    ${top.length ? `<div class="card"><div class="section-title" style="margin-top:0">Muscles les plus sollicités</div>
+      ${top.map((t) => `<div class="level-row"><span>${MUSCLE_LABELS[t.k]}</span><span class="muted">${Math.round(t.v / max * 100)} %</span></div>`).join("")}</div>` : ""}
+    <p class="tiny muted" style="text-align:center">Activation approximative (primaire/secondaire selon l'exercice).<br>Modèle : react-body-highlighter (MIT).</p>
+  `;
+
+  MUSCLE_KEYS.forEach((k) => {
+    const col = heatColor(hasData ? acc[k] / max : 0);
+    el.querySelectorAll(`[data-m="${k}"]`).forEach((node) => { node.style.fill = col; });
+  });
+  el.querySelectorAll("[data-range]").forEach((b) => b.onclick = () => { state.muscleRange = b.dataset.range; render(); });
+  el.querySelectorAll("[data-m]").forEach((node) => node.onclick = () => {
+    const k = node.dataset.m, pct = hasData ? Math.round(acc[k] / max * 100) : 0;
+    toast(`${MUSCLE_LABELS[k]} : ${pct} %`);
+  });
+}
+
+/* ============================================================
    VUE : Réglages / sauvegarde
    ============================================================ */
 function renderReglages() {
@@ -1375,6 +1715,14 @@ function renderReglages() {
       <div class="field"><label>Durée par défaut (secondes) — 0 pour désactiver</label>
         <input type="number" id="restInput" inputmode="numeric" value="${state.settings.rest}" />
       </div>
+    </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Sons de performance</div>
+      <label class="switch-row">
+        <span>Sons en séance (record 🏆 / moins bien 👎)</span>
+        <input type="checkbox" id="soundToggle" ${state.settings.sounds === false ? "" : "checked"} />
+      </label>
+      <button class="btn btn-sm" id="testSounds" style="margin-top:6px">🔊 Tester les sons</button>
     </div>
     <div class="card">
       <div class="section-title" style="margin-top:0">Sauvegarde des données</div>
@@ -1402,6 +1750,18 @@ function renderReglages() {
   `;
   document.getElementById("goModeles").onclick = () => switchView("modeles");
   document.getElementById("goExos").onclick = () => switchView("exercices");
+  document.getElementById("soundToggle").onchange = (e) => {
+    state.settings.sounds = e.target.checked;
+    save(STORE.settings, state.settings);
+    if (e.target.checked) { ensureAudio(); playBetter(); }
+  };
+  document.getElementById("testSounds").onclick = () => {
+    ensureAudio();
+    playPR();
+    setTimeout(playBetter, 1300);
+    setTimeout(playWorse, 2100);
+    toast("🏆 record · 👍 mieux · 👎 moins bien");
+  };
   const restInput = document.getElementById("restInput");
   restInput.onchange = () => {
     state.settings.rest = Math.max(0, parseInt(restInput.value) || 0);
@@ -1474,14 +1834,12 @@ function startRest(seconds) {
   tickRest();
   clearInterval(restTimer);
   restTimer = setInterval(tickRest, 250);
-  vibe(30);
 }
 function tickRest() {
   const left = Math.max(0, Math.round((restEnd - Date.now()) / 1000));
   document.getElementById("restTime").textContent = mmss(left);
   if (left <= 0) {
     stopRest();
-    vibe([120, 60, 120]);
     tone(880, 0.4, 0.3);
     toast("Repos terminé 💥");
   }
