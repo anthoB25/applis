@@ -613,7 +613,7 @@ function updateTopSet(ei) {
   for (let i = 1; i < en.sets.length; i++) {
     const s = en.sets[i];
     if (s.weight === "" || s.weight == null || s.ghost) {
-      const val = Math.round(prev * 0.9 * 2) / 2; // -10 %, arrondi à 0,5
+      const val = Math.round(prev * 0.9 / 2.5) * 2.5; // -10 %, arrondi à 2,5 kg
       s.weight = val; s.ghost = true; prev = val;
       const inp = document.querySelector(`.set-row[data-ei="${ei}"][data-si="${i}"] .in-weight`);
       if (inp) { inp.value = val; inp.classList.add("ghost"); }
