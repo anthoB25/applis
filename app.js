@@ -486,7 +486,7 @@ function bindSeance() {
     unghost(r);
     d.entries[+r.dataset.ei].sets[+r.dataset.si].weight = inp.value;
     save(STORE.draft, d);
-    if (+r.dataset.si === 0) updateRank(+r.dataset.ei);
+    if (+r.dataset.si === 0) { updateRank(+r.dataset.ei); updateTopSet(+r.dataset.ei); }
   });
   q(".in-reps", true).forEach((inp) => inp.oninput = () => {
     const r = inp.closest(".set-row");
@@ -535,6 +535,25 @@ function suggestedSet(exId, index, target) {
   const ghost = w !== "" || r !== "";
   return { weight: w, reps: r, done: false, target: target || null, ghost };
 }
+/* Exercice en "top set puis -10 %" ? (d'après son commentaire) */
+function isTopSetExercise(comment) {
+  const n = norm(comment || "");
+  return n.includes("top set") && (n.includes("-10") || n.includes("10 %") || n.includes("10%"));
+}
+/* Étend les objectifs de séries d'un modèle :
+   "... AMRAP dégressive" -> +2 séries (dégressives), "... upright row" -> +1 série */
+function expandProgramSets(targets) {
+  const out = [];
+  (targets || []).forEach((t) => {
+    const s = String(t);
+    const n = norm(s);
+    const base = s.includes("+") ? s.split("+")[0].trim() : s;
+    if (n.includes("amrap") && n.includes("degress")) { out.push(base || s, "AMRAP", "AMRAP"); }
+    else if (n.includes("upright row")) { out.push(base || s, "upright row"); }
+    else out.push(s);
+  });
+  return out;
+}
 /* Copie de la série précédente en gris (pour le bouton "+ Série") */
 function copySet(prev) {
   if (!prev) return { weight: "", reps: "", done: false, target: null, ghost: false };
@@ -582,6 +601,29 @@ function evaluatePerf(ei, si) {
   }
 }
 
+/* "Top set puis -10 %" : à partir du poids de la 1re série, pré-remplit en gris
+   la charge des séries suivantes (-10 % en cascade). N'écrase pas une valeur saisie. */
+function updateTopSet(ei) {
+  const en = state.draft && state.draft.entries[ei];
+  if (!en || !isTopSetExercise(en.comment) || !en.sets.length) return;
+  const s0 = en.sets[0];
+  const w0 = Number(s0 && s0.weight);
+  if (!s0 || s0.weight === "" || s0.weight == null || isNaN(w0) || w0 <= 0) return;
+  let prev = w0;
+  for (let i = 1; i < en.sets.length; i++) {
+    const s = en.sets[i];
+    if (s.weight === "" || s.weight == null || s.ghost) {
+      const val = Math.round(prev * 0.9 * 2) / 2; // -10 %, arrondi à 0,5
+      s.weight = val; s.ghost = true; prev = val;
+      const inp = document.querySelector(`.set-row[data-ei="${ei}"][data-si="${i}"] .in-weight`);
+      if (inp) { inp.value = val; inp.classList.add("ghost"); }
+    } else {
+      prev = Number(s.weight) || prev;
+    }
+  }
+  save(STORE.draft, state.draft);
+}
+
 /* Recalcule le badge de niveau d'un exercice (1re série) sans tout redessiner */
 function updateRank(ei) {
   const el = document.getElementById("rank-" + ei);
@@ -608,7 +650,7 @@ function startFromProgram(prog) {
       id: uid(), date: new Date().toISOString(), name: prog.name,
       entries: prog.exercises.map((pe) => {
         const ex = findOrCreateExercise(pe.name, pe.muscle);
-        const targets = pe.sets && pe.sets.length ? pe.sets : ["8-12"];
+        const targets = expandProgramSets(pe.sets && pe.sets.length ? pe.sets : ["8-12"]);
         return {
           exerciseId: ex.id, comment: pe.comment || "", rest: pe.rest != null ? pe.rest : state.settings.rest,
           sets: targets.map((t, i) => suggestedSet(ex.id, i, t)),
