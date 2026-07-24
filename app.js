@@ -83,6 +83,26 @@ const DEFAULT_PROGRAMS = [
       { name: "Upright row", muscle: "Épaules", sets: ["12-15", "8-12", "6-10 + AMRAP dégressive"], rest: 60, comment: "Augmenter le poids à chaque série" },
     ],
   },
+  {
+    name: "Séance A", type: "muscu",
+    exercises: [
+      { name: "Développé incliné", muscle: "Pectoraux", sets: ["4-6", "6-8", "8-10"], rest: 150, comment: "Top set puis -10 % du poids à chaque série" },
+      { name: "Tractions lestées prise neutre", muscle: "Dos", sets: ["4-6", "6-8", "8-10"], rest: 120, comment: "Top set puis -10 % du poids à chaque série" },
+      { name: "ATG split squat", muscle: "Jambes", sets: ["10-15", "10-15", "10-15"], rest: 45, comment: "45 s de repos par côté" },
+      { name: "Upright row", muscle: "Épaules", sets: ["10-15", "10-15", "10-15"], rest: 60, comment: "" },
+      { name: "Curl incliné", muscle: "Biceps", sets: ["10-15", "4-6", "4-6", "4-6"], rest: 10, comment: "Méga série : 10-15 puis +4-6, +4-6, +4-6 (10 s entre chaque)" },
+    ],
+  },
+  {
+    name: "Séance B", type: "muscu",
+    exercises: [
+      { name: "Dips lestés", muscle: "Triceps", sets: ["4-6", "6-8", "8-10"], rest: 150, comment: "Top set puis -10 % du poids à chaque série" },
+      { name: "Rowing bucheron", muscle: "Dos", sets: ["4-6", "6-8", "8-10"], rest: 60, comment: "Top set puis -10 % du poids à chaque série · 1 min par côté" },
+      { name: "Romanian deadlift", muscle: "Jambes", sets: ["10-15", "10-15", "10-15"], rest: 90, comment: "" },
+      { name: "Upright row", muscle: "Épaules", sets: ["10-15", "10-15", "10-15"], rest: 60, comment: "" },
+      { name: "Extension triceps nuque", muscle: "Triceps", sets: ["10-15", "4-6", "4-6", "4-6"], rest: 10, comment: "Méga série : 10-15 puis +4-6, +4-6, +4-6 (10 s entre chaque)" },
+    ],
+  },
 ];
 
 /* Minuteurs par défaut (exemples) */
@@ -207,6 +227,21 @@ if (!state.settings.migLowerExos) {
   save(STORE.programs, state.programs);
   save(STORE.ex, state.exercises);
   save(STORE.sessions, state.sessions);
+  save(STORE.settings, state.settings);
+}
+
+// Migration : ajouter les modèles "Séance A" et "Séance B"
+if (!state.settings.migSeanceAB) {
+  ["Séance A", "Séance B"].forEach((name) => {
+    if (state.programs.some((p) => p.name === name)) return;
+    const def = DEFAULT_PROGRAMS.find((p) => p.name === name);
+    if (!def) return;
+    def.exercises.forEach((pe) => findOrCreateExercise(pe.name, pe.muscle));
+    state.programs.push({ id: uid(), ...deepCopy(def) });
+  });
+  state.settings.migSeanceAB = true;
+  save(STORE.programs, state.programs);
+  save(STORE.ex, state.exercises);
   save(STORE.settings, state.settings);
 }
 

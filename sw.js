@@ -1,5 +1,5 @@
 /* Service worker — cache l'app pour le mode hors-ligne */
-const CACHE = "carnet-muscu-v15";
+const CACHE = "carnet-muscu-v16";
 const ASSETS = [
   ".",
   "index.html",
