@@ -124,20 +124,18 @@ const STRENGTH_STANDARDS = [
 function norm(s) { return String(s).toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, ""); }
 function standardFor(name) { const n = norm(name); return STRENGTH_STANDARDS.find((st) => st.match.some((m) => n.includes(norm(m)))); }
 /* Niveau à partir du poids + reps de la 1re série (normalisé sur reps de référence, Epley) */
-function computeLevel(st, wStr, rStr) {
-  if (wStr === "" || wStr == null || rStr === "" || rStr == null) return null;
-  const w = Number(wStr), r = Number(rStr);
-  if (isNaN(w) || isNaN(r) || r <= 0 || w < 0) return null;
-  const est1rm = w * (1 + r / 30);
-  const equiv = est1rm / (1 + st.reps / 30); // poids équivalent au nb de reps de référence
+function computeLevel(st, wStr) {
+  if (wStr === "" || wStr == null) return null;
+  const w = Number(wStr);
+  if (isNaN(w) || w < 0) return null;
   let idx = -1;
-  for (let i = 0; i < st.tiers.length; i++) if (equiv + 0.001 >= st.tiers[i]) idx = i;
-  return { idx, equiv, name: idx >= 0 ? TIER_NAMES[idx] : null, next: idx < st.tiers.length - 1 ? st.tiers[idx + 1] : null };
+  for (let i = 0; i < st.tiers.length; i++) if (w + 0.001 >= st.tiers[i]) idx = i;
+  return { idx, weight: w, name: idx >= 0 ? TIER_NAMES[idx] : null, next: idx < st.tiers.length - 1 ? st.tiers[idx + 1] : null };
 }
 function rankBadgeHtml(st, lvl) {
   if (!lvl) return `<span class="rank none">🏅 Niveau : —</span>`;
   if (lvl.idx < 0) return `<span class="rank bronze">🥉 Bronze</span><span class="rank-next"> · Silver à ${st.tiers[0]}kg × ${st.reps}</span>`;
-  const nextTxt = lvl.next != null ? ` · ${TIER_NAMES[lvl.idx + 1]} à ${lvl.next}kg` : " · palier max 🔥";
+  const nextTxt = lvl.next != null ? ` · ${TIER_NAMES[lvl.idx + 1]} à ${lvl.next}kg × ${st.reps}` : " · palier max 🔥";
   return `<span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span><span class="rank-next">${nextTxt}</span>`;
 }
 /* Petit badge de niveau (nom seul) pour les listes/journal */
@@ -146,14 +144,26 @@ function rankChip(lvl) {
   if (lvl.idx < 0) return `<span class="rank bronze">🥉 Bronze</span>`;
   return `<span class="rank tier-${lvl.idx}">🏅 ${lvl.name}</span>`;
 }
-/* Niveau actuel d'un exercice, calculé sur la 1re série de sa dernière séance */
+/* Poids maximum jamais soulevé sur un exercice */
+function maxWeightFor(exId) {
+  let mx = null;
+  state.sessions.forEach((s) => s.entries.forEach((en) => {
+    if (en.exerciseId === exId) en.sets.forEach((x) => {
+      const w = Number(x.weight);
+      if (!isNaN(w) && x.weight !== "" && x.weight != null && (Number(x.reps) > 0 || w > 0)) {
+        if (mx == null || w > mx) mx = w;
+      }
+    });
+  }));
+  return mx;
+}
+/* Niveau d'un exercice = palier de son poids max (le niveau ne dépend que de la charge) */
 function currentLevel(exId) {
   const ex = exById(exId);
   const st = ex && standardFor(ex.name);
   if (!st) return null;
-  const en = lastEntry(exId);
-  if (!en || !en.sets.length) return { st, lvl: null };
-  return { st, lvl: computeLevel(st, en.sets[0].weight, en.sets[0].reps) };
+  const mw = maxWeightFor(exId);
+  return { st, lvl: mw == null ? null : computeLevel(st, mw), max: mw };
 }
 
 /* ---------- Stockage ---------- */
@@ -1243,8 +1253,14 @@ function renderHistorique() {
     el.innerHTML = `<div class="empty"><div class="big">📅</div><p>Aucune séance enregistrée.<br>Termine une séance pour la voir ici.</p></div>`;
     return;
   }
-  let html = "";
-  state.sessions.forEach((sess) => {
+  const names = [...new Set(state.sessions.map((s) => s.name || "Séance"))].sort((a, b) => a.localeCompare(b, "fr"));
+  if (!state.journalFilter || (state.journalFilter !== "all" && !names.includes(state.journalFilter))) state.journalFilter = "all";
+  const list = state.journalFilter === "all" ? state.sessions : state.sessions.filter((s) => (s.name || "Séance") === state.journalFilter);
+
+  let html = names.length > 1
+    ? `<select class="search" id="journalFilter"><option value="all">Toutes les séances (${state.sessions.length})</option>${names.map((n) => `<option value="${esc(n)}" ${state.journalFilter === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>`
+    : "";
+  list.forEach((sess) => {
     const t = sessionVolume(sess);
     const body = sess.note
       ? `<div class="small muted" style="margin-top:4px">⏱ ${esc(sess.note)}</div>`
@@ -1260,6 +1276,8 @@ function renderHistorique() {
       </button>`;
   });
   el.innerHTML = html;
+  const filt = document.getElementById("journalFilter");
+  if (filt) filt.onchange = () => { state.journalFilter = filt.value; render(); };
   el.querySelectorAll(".hist-item").forEach((b) => b.onclick = () => showSessionDetail(b.dataset.id));
 }
 
@@ -1394,7 +1412,8 @@ function renderPerf(el) {
     levelsHtml = `<div class="card"><div class="section-title" style="margin-top:0">🏅 Niveaux de force</div>` +
       rankable.map((e) => {
         const cl = currentLevel(e.id);
-        return `<div class="level-row"><span>${esc(e.name)}</span>${rankChip(cl ? cl.lvl : null)}</div>`;
+        const mx = cl && cl.max != null ? `<span class="small muted">${cl.max}${state.settings.unit} max</span>` : "";
+        return `<div class="level-row"><span>${esc(e.name)}</span><span style="display:flex;align-items:center;gap:8px">${mx}${rankChip(cl ? cl.lvl : null)}</span></div>`;
       }).join("") + `</div>`;
   }
 
@@ -1410,7 +1429,7 @@ function renderPerf(el) {
     <select class="search" id="progSel">${options}</select>
     <div class="card">
       <div class="stat-row">
-        <div class="stat"><div class="v">${pr}${state.settings.unit}</div><div class="l">record (top série)</div></div>
+        <div class="stat"><div class="v">${pr}${state.settings.unit}</div><div class="l">poids max</div></div>
         <div class="stat"><div class="v">${Math.round(e1rm)}${state.settings.unit}</div><div class="l">1RM estimé</div></div>
         <div class="stat"><div class="v">${data.length}</div><div class="l">séances</div></div>
       </div>
