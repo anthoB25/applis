@@ -1035,16 +1035,33 @@ function playMelody(notes, type) {
   const t0 = c.currentTime + 0.03;
   notes.forEach((n) => scheduleTone(n.f, t0 + n.t, n.d, n.v == null ? 0.3 : n.v, n.type || type));
 }
+/* Joue un son personnalisé (data-URI stocké dans les réglages) s'il existe */
+let _customAudio = {};
+let pendingSoundKey = null;
+function customSoundUri(key) { return (state.settings.customSounds && state.settings.customSounds[key]) || null; }
+function playCustom(key) {
+  const uri = customSoundUri(key);
+  if (!uri) return false;
+  try {
+    let a = _customAudio[key];
+    if (!a || a._uri !== uri) { a = new Audio(uri); a._uri = uri; _customAudio[key] = a; }
+    a.currentTime = 0; a.play().catch(() => {});
+    return true;
+  } catch (e) { return false; }
+}
 function playPR() {
+  if (playCustom("pr")) return;
   playMelody([
     { f: 523.25, t: 0, d: 0.12 }, { f: 659.25, t: 0.10, d: 0.12 }, { f: 783.99, t: 0.20, d: 0.12 },
     { f: 1046.5, t: 0.30, d: 0.26 }, { f: 1046.5, t: 0.60, d: 0.10 }, { f: 1318.5, t: 0.72, d: 0.34 },
   ], "square");
 }
 function playBetter() {
+  if (playCustom("better")) return;
   playMelody([{ f: 659.25, t: 0, d: 0.10, v: 0.26 }, { f: 987.77, t: 0.10, d: 0.16, v: 0.26 }], "triangle");
 }
 function playWorse() {
+  if (playCustom("worse")) return;
   playMelody([
     { f: 392.0, t: 0, d: 0.18, v: 0.24 }, { f: 329.63, t: 0.19, d: 0.2, v: 0.24 }, { f: 261.63, t: 0.41, d: 0.36, v: 0.24 },
   ], "sawtooth");
@@ -1084,7 +1101,13 @@ function makeAlarmDataUri() {
   let bin = ""; for (let i = 0; i < b.length; i++) bin += String.fromCharCode(b[i]);
   return "data:audio/wav;base64," + btoa(bin);
 }
-function initAlarm() { if (!alarmEl) { alarmEl = new Audio(makeAlarmDataUri()); alarmEl.preload = "auto"; } return alarmEl; }
+let _defaultAlarmUri = null;
+function alarmSrc() { return customSoundUri("end") || (_defaultAlarmUri || (_defaultAlarmUri = makeAlarmDataUri())); }
+function initAlarm() {
+  const src = alarmSrc();
+  if (!alarmEl || alarmEl._src !== src) { alarmEl = new Audio(src); alarmEl._src = src; alarmEl.preload = "auto"; }
+  return alarmEl;
+}
 function unlockAlarm() {
   const a = initAlarm();
   try { a.muted = true; const p = a.play(); if (p) p.then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; }); }
@@ -1847,6 +1870,49 @@ function renderMuscleMap(el) {
   });
 }
 
+/* ---- Sons personnalisés (UI Réglages) ---- */
+function soundRow(key, label) {
+  const has = !!customSoundUri(key);
+  return `<div class="sound-row">
+    <span>${label}${has ? ' <span class="tiny" style="color:var(--green)">· perso</span>' : ""}</span>
+    <span class="sound-actions">
+      <button class="btn btn-sm btn-ghost" data-splay="${key}">▶</button>
+      <button class="btn btn-sm" data-spick="${key}">${has ? "Changer" : "📁 Choisir"}</button>
+      ${has ? `<button class="btn btn-sm btn-ghost" data-sreset="${key}" title="Son par défaut">↺</button>` : ""}
+    </span>
+  </div>`;
+}
+function previewSound(key) {
+  if (key === "end") { unlockAlarm(); playAlarm(); }
+  else if (key === "pr") playPR();
+  else if (key === "better") playBetter();
+  else if (key === "worse") playWorse();
+}
+function handleSoundFile(e) {
+  const file = e.target.files[0]; e.target.value = "";
+  if (!file || !pendingSoundKey) return;
+  if (file.size > 1024 * 1024) { toast("Fichier trop lourd (max 1 Mo)"); return; }
+  const key = pendingSoundKey;
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.settings.customSounds = state.settings.customSounds || {};
+    const prev = state.settings.customSounds[key];
+    state.settings.customSounds[key] = reader.result;
+    try { localStorage.setItem(STORE.settings, JSON.stringify(state.settings)); }
+    catch (err) {
+      if (prev != null) state.settings.customSounds[key] = prev; else delete state.settings.customSounds[key];
+      toast("Mémoire insuffisante pour ce son (essaie un fichier plus court)");
+      return;
+    }
+    if (key === "end") alarmEl = null;
+    delete _customAudio[key];
+    toast("Son personnalisé enregistré ✓");
+    render();
+  };
+  reader.onerror = () => toast("Lecture du fichier impossible");
+  reader.readAsDataURL(file);
+}
+
 /* ============================================================
    VUE : Réglages / sauvegarde
    ============================================================ */
@@ -1868,9 +1934,14 @@ function renderReglages() {
         <span>Sons en séance (record 🏆 / moins bien 👎)</span>
         <input type="checkbox" id="soundToggle" ${state.settings.sounds === false ? "" : "checked"} />
       </label>
-      <button class="btn btn-sm btn-block" id="testAlarm" style="margin-top:10px">🔔 Tester bip + vibration (fin de minuteur)</button>
-      <button class="btn btn-sm btn-block" id="testSounds" style="margin-top:8px">🔊 Tester les sons de performance</button>
-      <p class="tiny muted" style="margin-top:8px">Vibration : ${("vibrate" in navigator) ? "supportée par ce navigateur ✓" : "non supportée par ce navigateur ✗"}. Le son passe par le <b>volume média</b> — monte-le. Sur mobile, ces alertes ne marchent que si l'appli est au premier plan.</p>
+      <div class="section-title" style="font-size:12px;margin:14px 0 6px">Sons personnalisés (▶ écouter · 📁 choisir · ↺ défaut)</div>
+      ${soundRow("pr", "🏆 Record")}
+      ${soundRow("better", "👍 Mieux que la dernière")}
+      ${soundRow("worse", "👎 Moins bien")}
+      ${soundRow("end", "🔔 Fin du minuteur")}
+      <input type="file" id="soundFile" accept="audio/*" class="hidden" />
+      <button class="btn btn-sm btn-block" id="testAlarm" style="margin-top:12px">🔔 Tester bip + vibration (fin de minuteur)</button>
+      <p class="tiny muted" style="margin-top:8px">Vibration : ${("vibrate" in navigator) ? "supportée par ce navigateur ✓" : "non supportée par ce navigateur ✗"}. Le son passe par le <b>volume média</b>. Fichiers courts conseillés (max 1 Mo). Les alertes ne marchent que si l'appli est au premier plan.</p>
     </div>
     <div class="card">
       <div class="section-title" style="margin-top:0">Sauvegarde des données</div>
@@ -1908,13 +1979,16 @@ function renderReglages() {
     setTimeout(playTimerEnd, 120);
     toast(("vibrate" in navigator) ? "🔔 Bip + vibration…" : "🔔 Bip… (vibration non supportée)");
   };
-  document.getElementById("testSounds").onclick = () => {
-    ensureAudio();
-    playPR();
-    setTimeout(playBetter, 1300);
-    setTimeout(playWorse, 2100);
-    toast("🏆 record · 👍 mieux · 👎 moins bien");
-  };
+  document.querySelectorAll("[data-splay]").forEach((b) => b.onclick = () => previewSound(b.dataset.splay));
+  document.querySelectorAll("[data-spick]").forEach((b) => b.onclick = () => { pendingSoundKey = b.dataset.spick; document.getElementById("soundFile").click(); });
+  document.querySelectorAll("[data-sreset]").forEach((b) => b.onclick = () => {
+    const k = b.dataset.sreset;
+    if (state.settings.customSounds) { delete state.settings.customSounds[k]; save(STORE.settings, state.settings); }
+    if (k === "end") alarmEl = null;
+    delete _customAudio[k];
+    render(); toast("Son par défaut rétabli");
+  });
+  document.getElementById("soundFile").onchange = handleSoundFile;
   const restInput = document.getElementById("restInput");
   restInput.onchange = () => {
     state.settings.rest = Math.max(0, parseInt(restInput.value) || 0);
