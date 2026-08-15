@@ -1064,17 +1064,55 @@ function startTimerAudio() {
 function stopTimerAudio() {
   try { if (T && T._ka) { T._ka.stop(); T._ka.disconnect(); T._ka = null; } } catch (e) {}
 }
-/* Alerte de fin de minuteur : forte (passe par-dessus la musique) + vibration */
-function playTimerEnd() {
-  const c = ensureAudio();
-  if (c) {
-    const t0 = c.currentTime + 0.03;
-    scheduleTone(1000, t0, 0.22, 0.55, "square");
-    scheduleTone(1000, t0 + 0.30, 0.22, 0.55, "square");
-    scheduleTone(1000, t0 + 0.60, 0.22, 0.55, "square");
-    scheduleTone(1320, t0 + 0.90, 0.45, 0.55, "square");
+/* Piste audio d'alarme (WAV en data-URI) : plus fiable que WebAudio pour un
+   son différé sur mobile. On la "débloque" au lancement du minuteur (geste
+   utilisateur) puis on la rejoue à la fin. */
+let alarmEl = null;
+function makeAlarmDataUri() {
+  const sr = 8000, dur = 1.15, n = Math.floor(sr * dur), b = new Uint8Array(44 + n);
+  const w32 = (o, v) => { b[o] = v & 255; b[o + 1] = (v >> 8) & 255; b[o + 2] = (v >> 16) & 255; b[o + 3] = (v >> 24) & 255; };
+  const w16 = (o, v) => { b[o] = v & 255; b[o + 1] = (v >> 8) & 255; };
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) b[o + i] = s.charCodeAt(i); };
+  str(0, "RIFF"); w32(4, 36 + n); str(8, "WAVE"); str(12, "fmt "); w32(16, 16); w16(20, 1); w16(22, 1);
+  w32(24, sr); w32(28, sr); w16(32, 1); w16(34, 8); str(36, "data"); w32(40, n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const on = (t < 0.2) || (t >= 0.3 && t < 0.5) || (t >= 0.6 && t < 0.8) || (t >= 0.9 && t < 1.15);
+    const freq = t >= 0.9 ? 1320 : 1000;
+    b[44 + i] = 128 + (on ? Math.round(Math.sin(2 * Math.PI * freq * t) * 95) : 0);
   }
+  let bin = ""; for (let i = 0; i < b.length; i++) bin += String.fromCharCode(b[i]);
+  return "data:audio/wav;base64," + btoa(bin);
+}
+function initAlarm() { if (!alarmEl) { alarmEl = new Audio(makeAlarmDataUri()); alarmEl.preload = "auto"; } return alarmEl; }
+function unlockAlarm() {
+  const a = initAlarm();
+  try { a.muted = true; const p = a.play(); if (p) p.then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; }); }
+  catch (e) {}
+}
+function playAlarm() {
+  const a = initAlarm();
+  try { a.muted = false; a.currentTime = 0; const p = a.play(); return p ? p.then(() => true).catch(() => false) : Promise.resolve(true); }
+  catch (e) { return Promise.resolve(false); }
+}
+function webAudioEnd() {
+  const c = ensureAudio();
+  if (!c) return;
+  const fire = () => {
+    const t0 = c.currentTime + 0.05;
+    scheduleTone(1000, t0, 0.22, 0.6, "square");
+    scheduleTone(1000, t0 + 0.30, 0.22, 0.6, "square");
+    scheduleTone(1000, t0 + 0.60, 0.22, 0.6, "square");
+    scheduleTone(1320, t0 + 0.90, 0.45, 0.6, "square");
+  };
+  if (c.state === "suspended") c.resume().then(fire).catch(fire); else fire();
+}
+/* Alerte de fin de minuteur : piste WAV + repli WebAudio + vibration */
+function playTimerEnd() {
   vibe([220, 120, 220, 120, 450]);
+  playAlarm().then((ok) => { if (!ok) webAudioEnd(); });
+  // filet de sécurité : si la piste ne démarre pas assez vite
+  setTimeout(() => { if (!alarmEl || alarmEl.paused) webAudioEnd(); }, 250);
 }
 
 /* Empêche l'écran de se verrouiller tant que l'appli est ouverte (au 1er plan).
@@ -1149,6 +1187,7 @@ function openTimer(prog) {
     T.tick = setInterval(tickTimer, 100);
   }
   startTimerAudio();
+  unlockAlarm();
   bindTimerControls();
 }
 
@@ -1824,12 +1863,14 @@ function renderReglages() {
       </div>
     </div>
     <div class="card">
-      <div class="section-title" style="margin-top:0">Sons de performance</div>
+      <div class="section-title" style="margin-top:0">Sons & vibration</div>
       <label class="switch-row">
         <span>Sons en séance (record 🏆 / moins bien 👎)</span>
         <input type="checkbox" id="soundToggle" ${state.settings.sounds === false ? "" : "checked"} />
       </label>
-      <button class="btn btn-sm" id="testSounds" style="margin-top:6px">🔊 Tester les sons</button>
+      <button class="btn btn-sm btn-block" id="testAlarm" style="margin-top:10px">🔔 Tester bip + vibration (fin de minuteur)</button>
+      <button class="btn btn-sm btn-block" id="testSounds" style="margin-top:8px">🔊 Tester les sons de performance</button>
+      <p class="tiny muted" style="margin-top:8px">Vibration : ${("vibrate" in navigator) ? "supportée par ce navigateur ✓" : "non supportée par ce navigateur ✗"}. Le son passe par le <b>volume média</b> — monte-le. Sur mobile, ces alertes ne marchent que si l'appli est au premier plan.</p>
     </div>
     <div class="card">
       <div class="section-title" style="margin-top:0">Sauvegarde des données</div>
@@ -1861,6 +1902,11 @@ function renderReglages() {
     state.settings.sounds = e.target.checked;
     save(STORE.settings, state.settings);
     if (e.target.checked) { ensureAudio(); playBetter(); }
+  };
+  document.getElementById("testAlarm").onclick = () => {
+    unlockAlarm();
+    setTimeout(playTimerEnd, 120);
+    toast(("vibrate" in navigator) ? "🔔 Bip + vibration…" : "🔔 Bip… (vibration non supportée)");
   };
   document.getElementById("testSounds").onclick = () => {
     ensureAudio();
